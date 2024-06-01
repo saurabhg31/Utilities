@@ -1,6 +1,6 @@
 <?php
 
-$processBagData = new stdClass;
+const LOG_DIR = __DIR__ . DIRECTORY_SEPARATOR . 'logs';
 
 function dd(...$args)
 {
@@ -10,9 +10,14 @@ function dd(...$args)
     die(PHP_EOL . '------------ PROCESS DIE INVOKED ------------' . PHP_EOL);
 }
 
-function printLine(string $text, int $subsetCount = 0, bool $appendLineBreak = true)
+function printLine(string $text, int $subsetCount = 0, bool $appendLineBreak = false)
 {
     print(str_repeat(' ', $subsetCount * 4) . '. ' . $text . ($appendLineBreak ? PHP_EOL : ' '));
+}
+
+function logFilePath(string $fileName)
+{
+    return LOG_DIR . DIRECTORY_SEPARATOR . $fileName;
 }
 
 /**
@@ -21,18 +26,21 @@ function printLine(string $text, int $subsetCount = 0, bool $appendLineBreak = t
  */
 function getAllProcessesData(&$dataBag)
 {
-    printLine('PROCESS LISTING STARTED ON ' . (new DateTime('now', new DateTimeZone('+0530')))->format('d M, Y \a\t h:i:s p'));
-    if (!file_exists('processList.log')) {
-        printLine('Fetching processes list ...', 1, false);
+    printLine('PROCESS LISTING STARTED ON ' . (new DateTime('now', new DateTimeZone('+0530')))->format('d M, Y \a\t h:i:s p'), 0, true);
+    if (count(scandir(LOG_DIR)) == 2) {
+        printLine('Fetching processes list ...', 1);
         $processString = shell_exec('tasklist /v /fo list');
         $lines = array_filter(explode("\n", $processString));
         print('Done. Found ' . number_format(count($lines)) . ' processes.' . PHP_EOL);
-        file_put_contents('processList_' . time() . '.log', $processString);
+        file_put_contents(logFilePath('processList_' . time() . '.log'), $processString);
     } else {
-        $processLogFiles = array_filter(scandir(__DIR__), function ($str) {
+        $processLogFiles = array_filter(scandir(LOG_DIR), function ($str) {
             return str_starts_with($str, 'processList_') && str_ends_with($str, '.log');
         });
+        printLine('Found ' . number_format(count($processLogFiles)) . ' log file(s), reading the latest one (' . end($processLogFiles) . ') ...', 1);
+        sort($processLogFiles);
         $processString = file_get_contents(end($processLogFiles));
+        print('Done.' . PHP_EOL);
     }
     $process = new stdClass;
     $processBag = [];
@@ -44,6 +52,8 @@ function getAllProcessesData(&$dataBag)
         $key = str_replace(' ', '_', strtolower(reset($lineParts)));
         $process->$key = next($lineParts);
     }
+
+    printLine('Processing process list ... ', 2, true);
     foreach (array_chunk($lines, 9) as $lineBag) {
         foreach ($lineBag as $line) {
             processKeyValue($line, $process);
@@ -56,13 +66,17 @@ function getAllProcessesData(&$dataBag)
 
 // Function & main algotithm code
 try {
-    getAllProcessesData($processBagData);
+    if (!file_exists(LOG_DIR)) {
+        mkdir(LOG_DIR, 0770, true);
+    }
+    $processDataBag = new stdClass;
+    getAllProcessesData($processDataBag);
     dd([
-        'keys' => implode(', ', array_keys((array)$processBagData)),
-        'totalProcessesDetected' => $processBagData->count
+        'keys' => implode(', ', array_keys((array)$processDataBag)),
+        'totalProcessesDetected' => $processDataBag->count
     ]);
 } catch (Error $error) {
-    file_put_contents('error_' . time() . '.log', $error);
+    file_put_contents(logFilePath('error_' . time() . '.log'), $error);
     throw new Error(PHP_EOL . 'Something went wrong! Check error log.' . PHP_EOL);
 }
 
